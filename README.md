@@ -6,7 +6,7 @@
 
 ## 🏗️ 시스템 아키텍처 (System Architecture)
 
-![System Architecture](docs/개인프로젝트.png)
+![System Architecture](docs/architecture.png)
 
 ---
 

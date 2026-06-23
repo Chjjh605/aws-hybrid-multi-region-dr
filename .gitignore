@@ -1,0 +1,6 @@
+# Local IDE / AI Settings
+.clinerules
+
+# OS temporary files
+Thumbs.db
+.DS_Store
