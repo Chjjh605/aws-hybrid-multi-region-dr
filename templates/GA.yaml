@@ -1,0 +1,87 @@
+Parameters:
+  # Seoul region - ALB
+  AlbSeoulArn:
+    Type: String
+    Description: ARN of ALB in Seoul
+  
+  # Singapore region - EC2
+  EC2Singapore:
+    Type: String
+    Description: EC2 Instance Id 1 in Singapore
+  
+  # region 트래픽 다이얼 (0~100)
+  DialSeoul:
+    Type: Number
+    Default: 100
+    MinValue: 0
+    MaxValue: 100
+    Description: Traffic dial for Seoul %
+
+  DialSingapore:
+    Type: Number
+    Default: 100
+    MinValue: 0
+    MaxValue: 100
+    Description: Traffic dial for Singapore %
+
+  # EC2 가중치
+  WeightSeoulAlb:
+    Type: Number
+    Default: 255
+    MinValue: 0
+    MaxValue: 255
+    Description: Weight for ALB enpoint in Seoul
+  
+  WeightSingaporeEC2:
+    Type: Number
+    Default: 255
+    MinValue: 0
+    MaxValue: 255
+    Description: Weight for EC2 instance1 in Singapore
+
+Resources:
+  # ----------------------------------------------------------
+  # Accelerator
+  # ----------------------------------------------------------
+  GaAccelerator:
+    Type: AWS::GlobalAccelerator::Accelerator
+    Properties:
+      Name: !Sub '${AWS::StackName}-GA'
+      Enabled: true
+      IpAddressType: IPV4
+      
+  GaListener:
+    Type: AWS::GlobalAccelerator::Listener
+    Properties:
+      AcceleratorArn: !Ref GaAccelerator
+      Protocol: TCP
+      PortRanges:
+        - FromPort: 80
+          ToPort: 80
+      ClientAffinity: SOURCE_IP
+
+  # Seoul EndPoint Group
+  GaEndPointGroupSeoul:
+    Type: AWS::GlobalAccelerator::EndpointGroup
+    Properties:
+      ListenerArn: !Ref GaListener
+      EndpointGroupRegion: ap-northeast-2
+      TrafficDialPercentage: !Ref DialSeoul
+      HealthCheckProtocol: TCP
+      HealthCheckPort: 80
+      EndpointConfigurations:
+        - EndpointId: !Ref AlbSeoulArn
+          Weight: !Ref WeightSeoulAlb
+
+  # Singapore EndPoint Group
+  GaEndPointGroupSingapore:
+    Type: AWS::GlobalAccelerator::EndpointGroup
+    Properties:
+      ListenerArn: !Ref GaListener
+      EndpointGroupRegion: ap-southeast-1
+      TrafficDialPercentage: !Ref DialSingapore
+      HealthCheckProtocol: TCP
+      HealthCheckPort: 80
+      EndpointConfigurations:
+        - EndpointId: !Ref EC2Singapore
+          Weight: !Ref WeightSingaporeEC2

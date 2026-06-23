@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>회원 관리 시스템</title>
+  <style>
+    :root{
+      --bg:#0f1229; --card:#151b3a; --text:#eaf0ff; --muted:#9aa3c7;
+      --accent:#7ca6ff; --accent2:#8df3ff; --border:rgba(255,255,255,.12);
+      --ok:#29d398; --warn:#ffd166; --danger:#ff6b6b; --input:#0e1331;
+      --shadow:0 16px 44px rgba(0,0,0,.38);
+    }
+    [data-theme="light"]{
+      --bg:#f3f6ff; --card:#ffffff; --text:#1a213b; --muted:#5d688a;
+      --accent:#4c7dff; --accent2:#3bd6ff; --border:rgba(10,20,60,.14);
+      --ok:#10b981; --warn:#f59e0b; --danger:#ef4444; --input:#f7faff;
+      --shadow:0 12px 28px rgba(32,40,94,.12);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:
+        radial-gradient(900px 500px at 12% -10%, rgba(124,166,255,.18), transparent 60%),
+        radial-gradient(900px 600px at 110% 0%, rgba(141,243,255,.18), transparent 60%),
+        var(--bg);
+      color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Pretendard,sans-serif;
+      min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+    }
+    .app{width:min(1040px,100%)}
+    .nav{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin-bottom:14px;
+    }
+    .title{display:flex; align-items:center; gap:12px}
+    .title h1{margin:0; font-size:22px; letter-spacing:.2px}
+    .badge{
+      display:inline-flex; gap:8px; align-items:center; padding:8px 12px;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));
+      border-radius:999px; color:#0c1233; font-weight:900;
+    }
+    .actions{display:flex; gap:8px; align-items:center}
+    .btn{
+      appearance:none; background:transparent; color:var(--text);
+      border:1px solid var(--border); border-radius:12px; padding:10px 14px; cursor:pointer; font-weight:700;
+    }
+    .btn:hover{filter:brightness(1.08)}
+    .grid{
+      display:grid; grid-template-columns: 1.15fr .85fr; gap:16px;
+    }
+    @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+    .card{
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)),
+        var(--card);
+      border:1px solid var(--border); border-radius:22px; box-shadow:var(--shadow); overflow:hidden;
+    }
+    .card-head{display:flex; align-items:center; justify-content:space-between; padding:18px 18px 0}
+    .card-head h2{margin:0; font-size:18px}
+    .wrap{padding:18px}
+    .flex{display:flex; gap:14px; flex-wrap:wrap}
+    .tile{
+      flex:1 1 260px; min-height:124px; padding:18px;
+      background:var(--input); border:1px solid var(--border); border-radius:16px;
+      display:flex; flex-direction:column; justify-content:space-between;
+      transition:transform .16s ease, box-shadow .16s ease;
+    }
+    .tile:hover{transform:translateY(-3px)}
+    .tile h3{margin:0 0 6px; font-size:16px}
+    .tile p{margin:0; color:var(--muted); font-size:13px}
+    .tile .go{
+      align-self:flex-end; margin-top:10px; text-decoration:none; font-weight:900;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));
+      color:#0c1233; padding:10px 14px; border-radius:12px; border:0;
+      display:inline-flex; align-items:center; gap:8px;
+    }
+    .form-grid{display:grid; grid-template-columns:1fr; gap:12px}
+    .field{
+      background:var(--input); border:1px solid var(--border); border-radius:14px; padding:12px; position:relative;
+    }
+    .label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
+    .input{width:100%; background:transparent; border:none; outline:none; color:var(--text); font-size:16px; padding:6px 0}
+    .row{display:flex; gap:10px; align-items:center}
+    .submit{
+      background:linear-gradient(90deg,var(--accent),var(--accent2)); border:none; color:#0c1233;
+      padding:10px 14px; border-radius:12px; font-weight:900; cursor:pointer;
+    }
+    .danger{background:linear-gradient(90deg,var(--danger),#ff9f9f); color:#2b0b0b}
+    .hint{font-size:12px; color:var(--muted); margin-top:6px}
+    .hint.err{color:var(--danger)}
+    .kbd{font:600 12px/1 'JetBrains Mono','SFMono-Regular',monospace; padding:4px 6px; border:1px solid var(--border); border-radius:6px}
+    .footer{display:flex; justify-content:space-between; align-items:center; color:var(--muted); padding:0 18px 18px}
+    /* toast */
+    .toast{
+      position:fixed; right:16px; bottom:16px; display:flex; flex-direction:column; gap:10px; z-index:50;
+    }
+    .toast .msg{
+      background:var(--card); border:1px solid var(--border); color:var(--text);
+      padding:12px 14px; border-radius:12px; box-shadow:var(--shadow); max-width:min(420px, calc(100vw - 48px));
+      animation:slide .2s ease;
+    }
+    @keyframes slide{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:translateY(0)}}
+    .sr{position:absolute; left:-9999px}
+    a.link{color:var(--text)}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <nav class="nav">
+      <div class="title">
+        <h1>🗃️ 회원 관리 시스템</h1>
+        <span class="badge">✨ 메인</span>
+      </div>
+      <div class="actions">
+        <span class="kbd" title="Alt+Q">Alt+Q 조회</span>
+        <span class="kbd" title="Alt+N">Alt+N 등록</span>
+        <span class="kbd" title="Alt+U">Alt+U 수정</span>
+        <span class="kbd" title="Alt+X">Alt+X 삭제</span>
+        <button class="btn" id="toggle">🌗 테마 전환</button>
+      </div>
+    </nav>
+
+    <section class="grid">
+      <!-- 좌: 주요 액션 -->
+      <div class="card">
+        <div class="card-head">
+          <h2>🔎 빠른 액션</h2>
+        </div>
+        <div class="wrap">
+          <div class="flex">
+            <!-- 조회 -->
+            <article class="tile">
+              <div>
+                <h3>📋 회원 조회</h3>
+                <p>전체 목록 확인 및 행에서 바로 <strong>수정/삭제</strong> 수행</p>
+              </div>
+              <a class="go" href="select.php" aria-label="회원 조회로 이동">이동하기 ➜</a>
+            </article>
+
+            <!-- 등록 -->
+            <article class="tile">
+              <div>
+                <h3>➕ 신규 회원 등록</h3>
+                <p>유효성 검사·진행도 표시·라이트/다크 지원</p>
+              </div>
+              <a class="go" href="insert.php" aria-label="신규 회원 등록 페이지로 이동">이동하기 ➜</a>
+            </article>
+          </div>
+        </div>
+        <div class="footer">
+          <span>Tip: 상단 <span class="kbd">Alt+Q/N</span> 단축키로 더 빨리 이동할 수 있어요.</span>
+          <a class="link" href="main.html">🏠 메인으로</a>
+        </div>
+      </div>
+
+      <!-- 우: 수정/삭제 카드 -->
+      <div class="card" role="region" aria-label="빠른 수정/삭제">
+        <div class="card-head">
+          <h2>✏️ 빠른 수정 · 🗑️ 빠른 삭제</h2>
+        </div>
+        <div class="wrap">
+          <span id="live" class="sr" aria-live="polite"></span>
+          <div class="form-grid">
+            <!-- 수정 폼 -->
+            <form id="updateForm" method="get" action="update.php" novalidate>
+              <div class="field">
+                <label class="label" for="uidU">회원 수정 - 회원 아이디</label>
+                <div class="row">
+                  <input class="input" id="uidU" name="userID" type="text" placeholder="수정할 회원 아이디 입력"
+                         required pattern="^[A-Za-z0-9_]{3,20}$" maxlength="20" autocomplete="off">
+                  <button class="submit" type="submit">수정 페이지 열기</button>
+                </div>
+                <div class="hint" id="hintU">영문/숫자/밑줄 3~20자</div>
+              </div>
+            </form>
+
+            <!-- 삭제 폼 -->
+            <form id="deleteForm" method="get" action="delete.php" novalidate>
+              <div class="field">
+                <label class="label" for="uidD">회원 삭제 - 회원 아이디</label>
+                <div class="row">
+                  <input class="input" id="uidD" name="userID" type="text" placeholder="삭제할 회원 아이디 입력"
+                         required pattern="^[A-Za-z0-9_]{3,20}$" maxlength="20" autocomplete="off">
+                  <button class="submit danger" type="submit">삭제 실행</button>
+                </div>
+                <div class="hint" id="hintD">삭제 전 확인 창이 나타납니다</div>
+              </div>
+            </form>
+          </div>
+        </div>
+        <div class="footer">
+          <span>단축키: <span class="kbd">Alt+U</span> 수정 · <span class="kbd">Alt+X</span> 삭제</span>
+          <span style="opacity:.8">⚠️ 삭제는 되돌릴 수 없습니다.</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 토스트 -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // 🌗 테마 토글
+    const root = document.documentElement;
+    const toggle = document.getElementById('toggle');
+    toggle.addEventListener('click', () => {
+      root.dataset.theme = (root.dataset.theme === 'light') ? 'dark' : 'light';
+      pushToast(root.dataset.theme === 'light' ? '라이트 테마로 변경되었어요.' : '다크 테마로 변경되었어요.');
+    });
+
+    // ✅ 유효성 검사 + 안내
+    const live = document.getElementById('live');
+    const updateForm = document.getElementById('updateForm');
+    const deleteForm = document.getElementById('deleteForm');
+    const uidU = document.getElementById('uidU');
+    const uidD = document.getElementById('uidD');
+    const hintU = document.getElementById('hintU');
+    const hintD = document.getElementById('hintD');
+
+    function setHint(el, hintEl, ok, msgOk='좋습니다!', msgErr='영문/숫자/밑줄 4~20자'){
+      hintEl.classList.remove('err');
+      if(ok){ hintEl.textContent = msgOk; }
+      else { hintEl.textContent = msgErr; hintEl.classList.add('err'); }
+    }
+    function validateId(el, hintEl){
+      const ok = el.value.trim().length > 0 && el.checkValidity();
+      setHint(el, hintEl, ok);
+      return ok;
+    }
+
+    uidU.addEventListener('input', ()=>validateId(uidU, hintU));
+    uidD.addEventListener('input', ()=>validateId(uidD, hintD));
+
+    updateForm.addEventListener('submit', (e)=>{
+      if(!validateId(uidU, hintU)){
+        e.preventDefault(); pushToast('수정할 아이디를 올바르게 입력해주세요.'); uidU.focus();
+      }
+    });
+
+    deleteForm.addEventListener('submit', (e)=>{
+      if(!validateId(uidD, hintD)){
+        e.preventDefault(); pushToast('삭제할 아이디를 올바르게 입력해주세요.'); uidD.focus(); return;
+      }
+      const id = uidD.value.trim();
+      if(!confirm(`정말 삭제하시겠어요?\n아이디: ${id}\n이 작업은 되돌릴 수 없습니다.`)){
+        e.preventDefault();
+      }
+    });
+
+    // ⌨️ 단축키
+    window.addEventListener('keydown', (e)=>{
+      if(!e.altKey) return;
+      const k = e.key.toLowerCase();
+      if(k === 'q'){ location.href='select.php'; }
+      if(k === 'n'){ location.href='insert.php'; }
+      if(k === 'u'){ document.getElementById('uidU').focus(); }
+      if(k === 'x'){ document.getElementById('uidD').focus(); }
+    });
+
+    // 🪄 토스트
+    const toast = document.getElementById('toast');
+    function pushToast(text, ttl=2400){
+      const el = document.createElement('div');
+      el.className = 'msg';
+      el.textContent = text;
+      toast.appendChild(el);
+      setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateY(6px)'; }, ttl-300);
+      setTimeout(()=>{ toast.removeChild(el); }, ttl);
+      live.textContent = text;
+    }
+
+    // 초기 힌트 상태
+    setHint(uidU, hintU, false);
+    setHint(uidD, hintD, false);
+  </script>
+</body>
+</html>

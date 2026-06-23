@@ -1,0 +1,977 @@
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  SingaporeTGW:
+    Description: Name of Singapore TGW ID
+    Type: String
+  AmiAmazonLinux:
+    Description: Latest Ami Id
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64"
+    AllowedValues:
+      - /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+  AmiRockyLinux:
+    Description: Rocky-9-EC2-Base-9.6-20250531.0.x86_64
+    Type: AWS::EC2::Image::Id
+    Default: ami-06b18c6a9a323f75f
+
+Resources:
+  # =================================================================
+  # Seoul - AWS 인프라
+  # =================================================================
+
+  # ----------------------------------------------------------
+  # IDC - VPC
+  # ----------------------------------------------------------
+  VpcAws: # Seoul-AWS-VPC
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Seoul-VPC-AWS
+
+  # ----------------------------------------------------------
+  # AWS - Subnet
+  # ----------------------------------------------------------
+  SnPublic1: # Seoul-AWS-Public-Subnet1
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcAws
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.1.1.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-PublicSN1
+
+  SnPublic2: # Seoul-AWS-Public-Subnet2
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcAws
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: 10.1.2.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-PublicSN2
+
+  SnPriv3: # Seoul-AWS-Private-Subnet3
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcAws
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.1.3.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-PrivateSN3
+
+  SnPriv4: # Seoul-AWS-Private-Subnet4
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcAws
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: 10.1.4.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-PrivateSN4
+
+  SnTgw5: # Seoul-TGW-Subnet5
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcAws
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.1.5.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-TGW-SN5
+
+  SnTgw6: # Seoul-TGW-Subnet6
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcAws
+      AvailabilityZone: !Select [2, !GetAZs ""]
+      CidrBlock: 10.1.6.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-TGW-SN6
+
+  # ----------------------------------------------------------
+  # AWS - Internet Gateway
+  # ----------------------------------------------------------
+  IgwAws: # AWS 외부 연결용 대문
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-IGW
+
+  IgwAwsAttach: # AWS VPC에 대문 달기
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref IgwAws
+      VpcId: !Ref VpcAws
+
+  # ----------------------------------------------------------
+  # AWS - Routing Table 1
+  # ----------------------------------------------------------
+  Rt1AwsPublic: # AWS Public 도로 안내판
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcAws
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-RT1
+
+  Rt1AwsAssoc1: # Public 서브넷1 RouteTable 연결
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rt1AwsPublic
+      SubnetId: !Ref SnPublic1
+
+  Rt1AwsAssoc2: # Public 서브넷2 RouteTable 연결
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rt1AwsPublic
+      SubnetId: !Ref SnPublic2
+
+  Rt1AwsAssoc5: # Tgw 서브넷5 RouteTable 연결
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rt1AwsPublic
+      SubnetId: !Ref SnTgw5
+
+  Rt1AwsAssoc6: # Tgw 서브넷6 RouteTable 연결
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rt1AwsPublic
+      SubnetId: !Ref SnTgw6
+
+  RouteAwsPubtoInternet: # 외부 인터넷(0.0.0.0/0)으로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: IgwAwsAttach
+    Properties:
+      RouteTableId: !Ref Rt1AwsPublic
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IgwAws
+
+  RouteAwstoIdc: # 서울 IDC로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt1AwsPublic
+      DestinationCidrBlock: 10.2.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  RouteAwstoSinAws: # 싱가포르 AWS로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt1AwsPublic
+      DestinationCidrBlock: 10.3.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  RouteAwstoSinIdc: # 싱가포르 IDC로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt1AwsPublic
+      DestinationCidrBlock: 10.4.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  # ----------------------------------------------------------
+  # AWS - Routing Table 2
+  # ----------------------------------------------------------
+  Rt2AwsPriv3: # AWS Private3 도로 안내판
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcAws
+      Tags:
+        - Key: Name
+          Value: Seoul-RT2
+
+  Rt2AwsAssoc3: # Private 서브넷3 RouteTable 연결
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv3
+      SubnetId: !Ref SnPriv3
+
+  RouteAwsPri3toInternet: # 외부 인터넷(0.0.0.0/0)으로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: IgwAwsAttach
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv3
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref EC2AwsPub1
+
+  RouteAwsPri3toIdc: # 서울 IDC로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv3
+      DestinationCidrBlock: 10.2.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  RouteAwsPri3toSinAws: # 싱가포르 AWS로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv3
+      DestinationCidrBlock: 10.3.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  RouteAwsPri3toSinIdc: # 싱가포르 IDC로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv3
+      DestinationCidrBlock: 10.4.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  Rt2AwsPriv4: # AWS Private4 도로 안내판
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcAws
+      Tags:
+        - Key: Name
+          Value: Seoul-RT2
+
+  Rt2AwsAssoc4: # Private 서브넷4 RouteTable 연결
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv4
+      SubnetId: !Ref SnPriv4
+
+  RouteAwsPri4toInternet: # 외부 인터넷(0.0.0.0/0)으로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: IgwAwsAttach
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv4
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref EC2AwsPub2
+
+  RouteAwsPri4toIdc: # 서울 IDC로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv4
+      DestinationCidrBlock: 10.2.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  RouteAwsPri4toSinAws: # 싱가포르 AWS로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv4
+      DestinationCidrBlock: 10.3.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  RouteAwsPri4toSinIdc: # 싱가포르 IDC로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: TgwAtt1
+    Properties:
+      RouteTableId: !Ref Rt2AwsPriv4
+      DestinationCidrBlock: 10.4.0.0/16
+      TransitGatewayId: !Ref TgwSeoul
+
+  # ----------------------------------------------------------
+  # AWS - Application Load Blanacer
+  # ----------------------------------------------------------
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: My-ALB
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SnPublic1
+        - !Ref SnPublic2
+      SecurityGroups:
+        - !Ref SgAwsWeb
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ALB-TG
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VpcAws
+      HealthCheckPath: /index.html
+      Targets:
+        - Id: !Ref EC2AwsPri1
+          Port: 80
+        - Id: !Ref EC2AwsPri2
+          Port: 80
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+  # =================================================================
+  # Seoul - IDC 인프라
+  # =================================================================
+  # ----------------------------------------------------------
+  # IDC - VPC
+  # ----------------------------------------------------------
+  VpcIdc: # Seoul-IDC-VPC
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.2.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Seoul-VPC-IDC
+
+  # ----------------------------------------------------------
+  # IDC - Subnet
+  # ----------------------------------------------------------
+  SnIdc: # Seoul-Idc-Subnet
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VpcIdc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: 10.2.1.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-Idc-Subnet
+
+  # ----------------------------------------------------------
+  # IDC - Internet Gateway
+  # ----------------------------------------------------------
+  IgwIdc: # IDC 외부 연결용 대문
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Seoul-IDC-IGW
+
+  IgwIdcAttach: # IDC VPC에 대문 달기
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref IgwIdc
+      VpcId: !Ref VpcIdc
+
+  # ----------------------------------------------------------
+  # IDC - Routing Table
+  # ----------------------------------------------------------
+  Rt1Idc: # IDC  도로 안내판
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcIdc
+      Tags:
+        - Key: Name
+          Value: Seoul-IDC-RT1
+
+  Rt1IdcAssoc1: # 서브넷 RouteTable 연결
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref Rt1Idc
+      SubnetId: !Ref SnIdc
+
+  RouteIdctoInternet: # 외부 인터넷(0.0.0.0/0)으로 나가는 길
+    Type: AWS::EC2::Route
+    DependsOn: IgwIdcAttach
+    Properties:
+      RouteTableId: !Ref Rt1Idc
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IgwIdc
+
+  RouteCgw: # Cgw로 나가는 길
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref Rt1Idc
+      DestinationCidrBlock: 10.0.0.0/8
+      InstanceId: !Ref EC2IdcCgw
+
+  # =================================================================
+  # 보안 그룹 (Security Groups)
+  # =================================================================
+  SgAwsWeb: # Seoul-AWS-Web 보안 정책
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Seoul AWS Web
+      VpcId: !Ref VpcAws
+      GroupName: SgAwsWeb
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-Web-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  SgAwsNat: # Seoul-AWS-Nat 보안 정책
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Seoul AWS NAT
+      VpcId: !Ref VpcAws
+      GroupName: SgAwsNat
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-NAT-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.1.0.0/16
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.1.0.0/16
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  SgCgw: # Seoul-Idc-Cgw 보안 정책
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Seoul IDC CGW
+      VpcId: !Ref VpcIdc
+      GroupName: SgIdcCgw
+      Tags:
+        - Key: Name
+          Value: Seoul-IDC-Cgw-SG
+      SecurityGroupIngress:
+        - IpProtocol: udp
+          FromPort: 4500
+          ToPort: 4500
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: 500
+          ToPort: 500
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 179
+          ToPort: 179
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  SgIdc: # Seoul-Idc 보안 정책
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Seoul IDC Center
+      VpcId: !Ref VpcIdc
+      GroupName: SgIdc
+      Tags:
+        - Key: Name
+          Value: Seoul-IDC-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  # =================================================================
+  # Transit Gateway && VPN
+  # =================================================================
+  TgwSeoul:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: TGW-Seoul
+
+  TgwAtt1:
+    Type: AWS::EC2::TransitGatewayAttachment
+    DependsOn: VpcAws
+    Properties:
+      VpcId: !Ref VpcAws
+      SubnetIds:
+        - !Ref SnTgw5
+        - !Ref SnTgw6
+      TransitGatewayId: !Ref TgwSeoul
+      Tags:
+        - Key: Name
+          Value: TGW-ATT1-Seoul
+
+  # # 주석으로 배포 후 주석풀고 업데이트
+  # RouteIdctoSinAWS: # TGW 정적 경로 생성
+  #   Type: AWS::EC2::TransitGatewayRoute
+  #   Properties:
+  #     DestinationCidrBlock: 10.3.0.0/16 # 도착지 경로
+  #     TransitGatewayRouteTableId: tgw-rtb-0ab478e83f2c90f3e # Seoul 리전 TGW 라우팅 테이블 ID
+  #     TransitGatewayAttachmentId: !Ref SeoulSingaporePeering # Seoul TGW 연결 ID (Peering 타입)
+
+  # # 주석으로 배포 후 주석풀고 업데이트
+  # RouteIdctoSinIdc: # TGW 정적 경로 생성
+  #   Type: AWS::EC2::TransitGatewayRoute
+  #   Properties:
+  #     DestinationCidrBlock: 10.4.0.0/16 # 도착지 경로
+  #     TransitGatewayRouteTableId: tgw-rtb-0ab478e83f2c90f3e # Seoul 리전 TGW 라우팅 테이블 ID
+  #     TransitGatewayAttachmentId: !Ref SeoulSingaporePeering # Seoul TGW 연결 ID (Peering 타입)
+
+  SeoulSingaporePeering: # TrasitGateway 싱가폴 리전간 피어링
+    Type: AWS::EC2::TransitGatewayPeeringAttachment
+    Properties:
+      PeerAccountId: 901289084848
+      PeerRegion: ap-southeast-1
+      PeerTransitGatewayId: !Ref SingaporeTGW
+      Tags:
+        - Key: Name
+          Value: Seoul-Singapore-TGW-Peering
+      TransitGatewayId: !Ref TgwSeoul
+
+  CgwIdc:
+    Type: AWS::EC2::CustomerGateway
+    Properties:
+      Type: ipsec.1
+      BgpAsn: 65010
+      IpAddress: !Ref EipIdcCgw
+      Tags:
+        - Key: Name
+          Value: IDC-CGW
+
+  VpcAwsVpnConnection:
+    Type: AWS::EC2::VPNConnection
+    Properties:
+      Type: ipsec.1
+      CustomerGatewayId: !Ref CgwIdc
+      TransitGatewayId: !Ref TgwSeoul
+      VpnTunnelOptionsSpecifications:
+        - PreSharedKey: cloudneta
+          TunnelInsideCidr: 169.254.178.132/30
+        - PreSharedKey: cloudneta
+          TunnelInsideCidr: 169.254.154.168/30
+
+  # =================================================================
+  # 컴퓨팅 자원 (EC2 Instances)
+  # =================================================================
+  # ----------------------------------------------------------
+  # AWS - EC2
+  # ----------------------------------------------------------
+  EC2AwsPub1: # EC2-AWS-Public-Nat1
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiAmazonLinux
+      KeyName: !Ref KeyName
+      SourceDestCheck: false
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SnPublic1
+          GroupSet:
+            - !Ref SgAwsNat
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-NATInstance1
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          hostnamectl --static set-hostname Seoul-AWS-NATInstance1
+          cat <<EOF > /etc/profile.d/prompt.sh
+          export PS1="\[\e[1;31m\]\u\[\e[m\]@\[\e[1;32m\]\h\[\e[m\]: \[\e[1;34m\]\w\[\e[m\]\$ "
+          EOF
+          source /etc/profile
+          set -euxo pipefail
+          IFACE="$(ip route show default | awk '/default/ {print $5; exit}')"
+          dnf install -y iptables-services
+          systemctl enable --now iptables
+          cat >/etc/sysctl.d/90-nat.conf <<EOF
+          net.ipv4.ip_forward=1
+          EOF
+          sysctl --system
+          /sbin/iptables -t nat -F
+          /sbin/iptables -F FORWARD
+          /sbin/iptables -P FORWARD ACCEPT
+          /sbin/iptables -t nat -A POSTROUTING -o "$IFACE" -j MASQUERADE
+          service iptables save
+
+  EipAwsPub1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  EipAssocAwsPub1:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt EipAwsPub1.AllocationId
+      InstanceId: !Ref EC2AwsPub1
+
+  EC2AwsPub2: # EC2-AWS-Public-Nat2
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiAmazonLinux
+      KeyName: !Ref KeyName
+      SourceDestCheck: false
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SnPublic2
+          GroupSet:
+            - !Ref SgAwsNat
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-NATInstance2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          hostnamectl --static set-hostname Seoul-AWS-NATInstance2
+          cat <<EOF > /etc/profile.d/prompt.sh
+          export PS1="\[\e[1;31m\]\u\[\e[m\]@\[\e[1;32m\]\h\[\e[m\]: \[\e[1;34m\]\w\[\e[m\]\$ "
+          EOF
+          source /etc/profile
+          set -euxo pipefail
+          IFACE="$(ip route show default | awk '/default/ {print $5; exit}')"
+          dnf install -y iptables-services
+          systemctl enable --now iptables
+          cat >/etc/sysctl.d/90-nat.conf <<EOF
+          net.ipv4.ip_forward=1
+          EOF
+          sysctl --system
+          /sbin/iptables -t nat -F
+          /sbin/iptables -F FORWARD
+          /sbin/iptables -P FORWARD ACCEPT
+          /sbin/iptables -t nat -A POSTROUTING -o "$IFACE" -j MASQUERADE
+          service iptables save
+
+  EipAwsPub2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  EipAssocAwsPub2:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt EipAwsPub2.AllocationId
+      InstanceId: !Ref EC2AwsPub2
+
+  EC2AwsPri1: # EC2-AWS-Private1
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiAmazonLinux
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SnPriv3
+          GroupSet:
+            - !Ref SgAwsWeb
+          PrivateIpAddress: 10.1.3.100
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-Web1
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          hostnamectl --static set-hostname Seoul-AWS-Web1
+          cat <<EOF > /etc/profile.d/prompt.sh
+          export PS1="\[\e[1;31m\]\u\[\e[m\]@\[\e[1;32m\]\h\[\e[m\]: \[\e[1;34m\]\w\[\e[m\]\$ "
+          EOF
+          source /etc/profile
+          (
+          echo "qwe123"
+          echo "qwe123"
+          ) | passwd --stdin root
+          sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+          sed -i "s/^#PermitRootLogin prohibit-password/PermitRootLogin yes/g" /etc/ssh/sshd_config
+          service sshd restart
+          dnf install -y httpd php php-mysqlnd cronie
+          systemctl enable --now httpd
+          systemctl enable --now crond
+          dnf install -y httpd php php-mysqlnd
+          systemctl enable --now httpd
+          cat <<'EOF' > /var/www/html/index.php
+          <?php
+          $conn = mysqli_connect("dbsrv.idcseoul.internal", "user1", "p@ssw0rd", "sqlDB");
+          if (!$conn) { die("Conn Failed: " . mysqli_connect_error()); }
+          echo "<h1>Success: Web Server1 -> IDC DB Connected! [Seoul]</h1>";
+          ?>
+          EOF
+
+  EC2AwsPri2: # EC2-AWS-Private2
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmiAmazonLinux
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SnPriv4
+          GroupSet:
+            - !Ref SgAwsWeb
+          PrivateIpAddress: 10.1.4.100
+      Tags:
+        - Key: Name
+          Value: Seoul-AWS-Web2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          hostnamectl --static set-hostname Seoul-AWS-Web2
+          cat <<EOF > /etc/profile.d/prompt.sh
+          export PS1="\[\e[1;31m\]\u\[\e[m\]@\[\e[1;32m\]\h\[\e[m\]: \[\e[1;34m\]\w\[\e[m\]\$ "
+          EOF
+          source /etc/profile
+          (
+          echo "qwe123"
+          echo "qwe123"
+          ) | passwd --stdin root
+          sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+          sed -i "s/^#PermitRootLogin prohibit-password/PermitRootLogin yes/g" /etc/ssh/sshd_config
+          service sshd restart
+          dnf install -y httpd php php-mysqlnd cronie
+          systemctl enable --now httpd
+          systemctl enable --now crond
+          dnf install -y httpd php php-mysqlnd
+          systemctl enable --now httpd
+          cat <<'EOF' > /var/www/html/index.php
+          <?php
+          $conn = mysqli_connect("dbsrv.idcseoul.internal", "user1", "p@ssw0rd", "sqlDB");
+          if (!$conn) { die("Conn Failed: " . mysqli_connect_error()); }
+          echo "<h1>Success: Web Server2 -> IDC DB Connected! [Seoul]</h1>";
+          ?>
+          EOF
+
+  # ----------------------------------------------------------
+  # IDC - EC2
+  # ----------------------------------------------------------
+  EC2IdcDns: # EC2-IDC-DNS_Server
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref AmiRockyLinux
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SnIdc
+          GroupSet:
+            - !Ref SgIdc
+          PrivateIpAddress: 10.2.1.200
+      Tags:
+        - Key: Name
+          Value: EC2-IDC-DNS
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          hostnamectl --static set-hostname Seoul-IDC-DNS
+          cat <<EOF > /etc/profile.d/prompt.sh
+          export PS1="\[\e[1;31m\]\u\[\e[m\]@\[\e[1;32m\]\h\[\e[m\]: \[\e[1;34m\]\w\[\e[m\]\$ "
+          EOF
+          source /etc/profile
+          (
+          echo "qwe123"
+          echo "qwe123"
+          ) | passwd --stdin root
+          sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+          sed -i "s/^#PermitRootLogin prohibit-password/PermitRootLogin yes/g" /etc/ssh/sshd_config
+          service sshd restart
+          dnf install bind -y
+          sed -i "s/listen-on port 53 { 127.0.0.1; };/listen-on port 53 { any; };/g" /etc/named.conf
+          sed -i "s/allow-query     { localhost; };/allow-query     { any; };/g" /etc/named.conf
+          cat <<EOF >> /etc/named.rfc1912.zones
+          zone "idcseoul.internal" { type master; file "/var/named/db.idcseoul.internal"; };
+          zone "idcsingapore.internal" { type forward; forwarders { 10.4.1.200; }; };
+          EOF
+          cat <<EOF > /var/named/db.idcseoul.internal
+          \$TTL 300
+          @ IN SOA idcseoul.internal. root.idcseoul.internal. ( 2019122114 3600 900 604800 86400 )
+          @      IN NS idcseoul.internal.
+          DNSSrv IN A  10.2.1.200
+          DBSrv  IN A  10.2.1.100
+          EOF
+          systemctl enable --now named
+
+  EC2IdcDB: # EC2-IDC-DB_Server
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref AmiRockyLinux
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SnIdc
+          GroupSet:
+            - !Ref SgIdc
+          PrivateIpAddress: 10.2.1.100
+      Tags:
+        - Key: Name
+          Value: EC2-IDC-DB-Master
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          hostnamectl --static set-hostname Seoul-IDC-DB-Master
+          cat <<EOF > /etc/profile.d/prompt.sh
+          export PS1="\[\e[1;31m\]\u\[\e[m\]@\[\e[1;32m\]\h\[\e[m\]: \[\e[1;34m\]\w\[\e[m\]\$ "
+          EOF
+          source /etc/profile
+          (
+          echo "qwe123"
+          echo "qwe123"
+          ) | passwd --stdin root
+          sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+          sed -i "s/^#PermitRootLogin prohibit-password/PermitRootLogin yes/g" /etc/ssh/sshd_config
+          service sshd restart
+
+  EC2IdcCgw: # EC2-IDC-CustomGateWay
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.small
+      ImageId: !Ref AmiRockyLinux
+      KeyName: !Ref KeyName
+      SourceDestCheck: false
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SnIdc
+          GroupSet:
+            - !Ref SgCgw
+      Tags:
+        - Key: Name
+          Value: EC2-IDC-CGW
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          hostnamectl --static set-hostname Seoul-IDC-CGW
+          cat <<EOF > /etc/profile.d/prompt.sh
+          export PS1="\[\e[1;31m\]\u\[\e[m\]@\[\e[1;32m\]\h\[\e[m\]: \[\e[1;34m\]\w\[\e[m\]\$ "
+          EOF
+          source /etc/profile
+
+  EipIdcCgw:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  EipAssocIdcCgw:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt EipIdcCgw.AllocationId
+      InstanceId: !Ref EC2IdcCgw
+
+  # =================================================================
+  # Route 53 ( Private Hosted Zone)
+  # =================================================================
+  HzPrivateAwsSeoul:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: awsseoul.internal
+      VPCs:
+        - VPCId: !Ref VpcAws
+          VPCRegion: !Ref "AWS::Region"
+      HostedZoneTags:
+        - Key: Name
+          Value: HzPrivate-Seoul
+
+  RecordWeb1:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HzPrivateAwsSeoul
+      Name: websrv1.awsseoul.internal
+      Type: A
+      TTL: "300"
+      ResourceRecords:
+        - 10.1.3.100
+
+  RecordWeb2:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HzPrivateAwsSeoul
+      Name: websrv2.awsseoul.internal
+      Type: A
+      TTL: "300"
+      ResourceRecords:
+        - 10.1.4.100
+
+  HzPrivateIdcSeoul:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: idcseoul.internal
+      VPCs:
+        - VPCId: !Ref VpcAws
+          VPCRegion: !Ref "AWS::Region"
+        - VPCId: !Ref VpcAws # ⭐️ 추가: 웹 서버가 있는 AWS VPC도 연결!
+          VPCRegion: !Ref "AWS::Region"
+
+  RecordDB:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HzPrivateIdcSeoul
+      Name: dbsrv.idcseoul.internal
+      Type: A
+      TTL: "300"
+      ResourceRecords:
+        - 10.2.1.100
+
+  RecordDNS:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HzPrivateIdcSeoul
+      Name: dnssrv.idcseoul.internal
+      Type: A
+      TTL: "300"
+      ResourceRecords:
+        - 10.2.1.200
+  # =================================================================
+  # Outputs
+  # =================================================================
+Outputs:
+  CgwPublicIp:
+    Description: CGW IP
+    Value: !Ref EipIdcCgw
+
+  Public1IP:
+    Description: Public 1 IP
+    Value: !Ref EipAwsPub1
+
+  Public2IP:
+    Description: Public 2 IP
+    Value: !Ref EipAwsPub2
+
+  SeoulSingaporePeeringAttachmentId:
+    Description: TGW Peering Attachment ID (Need to be accepted in Singapore)
+    Value: !Ref SeoulSingaporePeering
+
+  AlbArn:
+    Description: ALBArn
+    Value: !Ref ALB
